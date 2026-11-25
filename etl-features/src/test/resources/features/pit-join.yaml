@@ -1,0 +1,32 @@
+# Feature definitions for the point-in-time join tests.
+entity_key: customerID
+as_of: label_time
+
+features:
+  - name: calls_30d
+    source: support_calls
+    event_time: event_time
+    window: 30d
+    aggregation: count
+    filter: { event_type: support_call }
+
+  - name: calls_90d
+    source: support_calls
+    event_time: event_time
+    window: 90d
+    aggregation: count
+    filter: { event_type: support_call }
+
+  - name: spent_90d
+    source: support_calls
+    event_time: event_time
+    window: 90d
+    aggregation: sum
+    value_column: amount
+
+  - name: last_amount_30d
+    source: support_calls
+    event_time: event_time
+    window: 30d
+    aggregation: last
+    value_column: amount
