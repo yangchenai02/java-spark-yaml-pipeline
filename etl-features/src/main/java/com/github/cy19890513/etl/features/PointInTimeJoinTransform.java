@@ -59,8 +59,8 @@ public class PointInTimeJoinTransform implements TransformStage {
 
     @Override
     public Dataset<Row> transform(Map<String, Dataset<Row>> inputs, Map<String, String> options) {
-        String featuresPath = require(options, "features");
-        String entitiesName = require(options, "entities");
+        String featuresPath = FeatureSql.requireOption("point_in_time_join", options, "features");
+        String entitiesName = FeatureSql.requireOption("point_in_time_join", options, "entities");
         FeatureRegistry registry = loadRegistry(featuresPath);
 
         Dataset<Row> entities = inputs.get(entitiesName);
@@ -71,8 +71,8 @@ public class PointInTimeJoinTransform implements TransformStage {
         }
         String key = registry.entityKey();
         String asOf = registry.asOf();
-        requireColumn("entities", entities, key);
-        requireColumn("entities", entities, asOf);
+        FeatureSql.requireColumn("point_in_time_join", "entities", entities, key);
+        FeatureSql.requireColumn("point_in_time_join", "entities", entities, asOf);
         for (String column : entities.columns()) {
             if (registry.featureNames().contains(column)) {
                 throw new IllegalArgumentException(
@@ -91,8 +91,7 @@ public class PointInTimeJoinTransform implements TransformStage {
         List<String> joins = new ArrayList<>();
         int sourceIndex = 0;
         for (Map.Entry<String, List<FeatureDefinition>> group : bySource.entrySet()) {
-            String sourceName = group.getKey();
-            Dataset<Row> events = inputs.get(sourceName);
+            Dataset<Row> events = inputs.get(group.getKey());
             String eventsView = "__pit_events_" + uid + "_" + sourceIndex;
             events.createOrReplaceTempView(eventsView);
             String alias = "s" + sourceIndex;
@@ -132,14 +131,18 @@ public class PointInTimeJoinTransform implements TransformStage {
                                 + "', which is not one of the transform inputs "
                                 + inputs.keySet());
             }
-            requireColumn("events '" + feature.source() + "'", events, registry.entityKey());
-            requireColumn("events '" + feature.source() + "'", events, feature.eventTime());
+            FeatureSql.requireColumn("point_in_time_join",
+                    "events '" + feature.source() + "'", events, registry.entityKey());
+            FeatureSql.requireColumn("point_in_time_join",
+                    "events '" + feature.source() + "'", events, feature.eventTime());
             if (feature.aggregation() != FeatureDefinition.Aggregation.COUNT
                     || !feature.valueColumn().equals(feature.eventTime())) {
-                requireColumn("events '" + feature.source() + "'", events, feature.valueColumn());
+                FeatureSql.requireColumn("point_in_time_join",
+                        "events '" + feature.source() + "'", events, feature.valueColumn());
             }
             for (String column : feature.filter().keySet()) {
-                requireColumn("events '" + feature.source() + "'", events, column);
+                FeatureSql.requireColumn("point_in_time_join",
+                        "events '" + feature.source() + "'", events, column);
             }
             bySource.computeIfAbsent(feature.source(), k -> new ArrayList<>()).add(feature);
         }
@@ -166,85 +169,25 @@ public class PointInTimeJoinTransform implements TransformStage {
     private static String aggregateSql(String entitiesView, String eventsView,
             String key, String asOf, List<FeatureDefinition> features) {
         long maxHours = features.stream()
-                .mapToLong(f -> f.window().unit() == FeatureDefinition.Window.Unit.DAYS
-                        ? f.window().amount() * 24 : f.window().amount())
+                .mapToLong(f -> FeatureSql.windowHours(f.window()))
                 .max().orElseThrow();
         String maxInterval = maxHours % 24 == 0
                 ? (maxHours / 24) + " DAYS" : maxHours + " HOURS";
+        String eventTime = features.get(0).eventTime();
 
         List<String> selects = new ArrayList<>();
         selects.add("e.`" + key + "` AS `__key`");
         selects.add("e.`" + asOf + "` AS `__asof`");
         for (FeatureDefinition feature : features) {
-            selects.add(aggregateExpr(feature, key, asOf) + " AS `" + feature.name() + "`");
+            selects.add(FeatureSql.aggregateExpr(feature, "e", "ev", asOf)
+                    + " AS `" + feature.name() + "`");
         }
         return "SELECT " + String.join(", ", selects)
                 + " FROM " + entitiesView + " e"
                 + " LEFT JOIN " + eventsView + " ev"
                 + " ON ev.`" + key + "` = e.`" + key + "`"
-                + " AND ev.`" + features.get(0).eventTime() + "` <= e.`" + asOf + "`"
-                + " AND ev.`" + features.get(0).eventTime() + "` > e.`" + asOf
-                + "` - INTERVAL " + maxInterval
+                + " AND ev.`" + eventTime + "` <= e.`" + asOf + "`"
+                + " AND ev.`" + eventTime + "` > e.`" + asOf + "` - INTERVAL " + maxInterval
                 + " GROUP BY e.`" + key + "`, e.`" + asOf + "`";
-    }
-
-    private static String aggregateExpr(FeatureDefinition feature, String key, String asOf) {
-        String inWindow = windowPredicate(feature, asOf);
-        String value = "ev.`" + feature.valueColumn() + "`";
-        String guarded = "CASE WHEN " + inWindow + " THEN " + value + " END";
-        return switch (feature.aggregation()) {
-            case COUNT -> "COUNT(" + guarded + ")";
-            case SUM -> "SUM(" + guarded + ")";
-            case AVG -> "AVG(" + guarded + ")";
-            case MIN -> "MIN(" + guarded + ")";
-            case MAX -> "MAX(" + guarded + ")";
-            // Most recent in-window value: max_by ignores NULL first
-            // arguments, so out-of-window rows contribute nothing.
-            case LAST -> "MAX_BY(" + guarded + ", ev.`" + feature.eventTime() + "`)";
-        };
-    }
-
-    private static String windowPredicate(FeatureDefinition feature, String asOf) {
-        String eventTime = "ev.`" + feature.eventTime() + "`";
-        StringBuilder predicate = new StringBuilder();
-        predicate.append(eventTime).append(" <= e.`").append(asOf).append("`");
-        predicate.append(" AND ").append(eventTime).append(" > e.`").append(asOf)
-                .append("` - INTERVAL ").append(feature.window().toIntervalSql());
-        for (Map.Entry<String, String> filter : feature.filter().entrySet()) {
-            predicate.append(" AND ev.`").append(filter.getKey()).append("` = ")
-                    .append(literal(filter.getValue()));
-        }
-        return predicate.toString();
-    }
-
-    /** Renders a filter value as a SQL literal: numbers unquoted, else a quoted string. */
-    private static String literal(String value) {
-        if (value != null && value.matches("-?\\d+(\\.\\d+)?")) {
-            return value;
-        }
-        if ("true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value)) {
-            return value.toLowerCase();
-        }
-        return "'" + (value == null ? "" : value.replace("'", "''")) + "'";
-    }
-
-    private static void requireColumn(String where, Dataset<Row> frame, String column) {
-        for (String existing : frame.columns()) {
-            if (existing.equals(column)) {
-                return;
-            }
-        }
-        throw new IllegalArgumentException(
-                "The 'point_in_time_join' transform requires column '" + column
-                        + "' in " + where + ", got columns " + List.of(frame.columns()));
-    }
-
-    private static String require(Map<String, String> options, String key) {
-        String value = options.get(key);
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(
-                    "The 'point_in_time_join' transform requires option '" + key + "'");
-        }
-        return value;
     }
 }
