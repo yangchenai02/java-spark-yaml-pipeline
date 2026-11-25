@@ -24,6 +24,7 @@
     <module>etl-core</module>
     <module>etl-connectors</module>
     <module>etl-quality</module>
+    <module>etl-features</module>
     <module>etl-cli</module>
   </modules>
 
@@ -104,6 +105,11 @@
       <dependency>
         <groupId>com.github.cy19890513</groupId>
         <artifactId>etl-quality</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.github.cy19890513</groupId>
+        <artifactId>etl-features</artifactId>
         <version>${project.version}</version>
       </dependency>
     </dependencies>
