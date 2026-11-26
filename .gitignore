@@ -37,3 +37,4 @@ checkpoints/
 dependency-reduced-pom.xml
 # sample run output
 examples/output/
+examples/churn-features/output/

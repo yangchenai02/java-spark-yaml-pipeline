@@ -1,0 +1,49 @@
+# Churn feature pipeline: point-in-time features, a consistency check
+# against the serving manifest, and a feature store write.
+#
+# Run from the repository root:
+#   java -jar etl-cli/target/etl-cli-0.1.0-SNAPSHOT.jar examples/churn-features/pipeline.yaml
+#
+# c1's March 5 support call happens AFTER its March 1 label time, so it
+# must not count toward any feature — that is the leakage the
+# point-in-time join exists to prevent.
+name: churn-features
+
+sources:
+  - name: customers
+    type: csv
+    options:
+      path: examples/churn-features/data/customers.csv
+      header: "true"
+      inferSchema: "true"
+      timestampFormat: "yyyy-MM-dd HH:mm:ss"
+  - name: support_calls
+    type: csv
+    options:
+      path: examples/churn-features/data/service_events.csv
+      header: "true"
+      inferSchema: "true"
+      timestampFormat: "yyyy-MM-dd HH:mm:ss"
+
+transforms:
+  - name: churn_features
+    type: point_in_time_join
+    inputs: [customers, support_calls]
+    options:
+      features: examples/churn-features/features.yaml
+      entities: customers
+
+quality:
+  - name: features_match_serving
+    type: feature_consistency
+    input: churn_features
+    manifest: examples/churn-features/serving/_features.json
+    on_failure: fail
+
+sinks:
+  - name: training_features
+    type: feature_store
+    input: churn_features
+    path: examples/churn-features/output/churn_features
+    mode: overwrite
+    features: examples/churn-features/features.yaml

@@ -61,6 +61,41 @@ java -jar etl-cli/target/etl-cli-0.1.0-SNAPSHOT.jar examples/sample-pipeline.yam
 It reads `examples/data/users.csv`, keeps the adult users, checks that no
 id is null, and writes Parquet to `examples/output/adult_users`.
 
+## Feature engineering
+
+The `etl-features` module adds ML feature engineering on top of the same
+plugin system: point-in-time joins (leakage-safe features), trailing-window
+aggregation, a feature store sink, and a train/serve consistency check.
+One `features.yaml` file drives both the offline (training) run and the
+online (serving) run, so the two can never drift apart.
+
+Try the bundled churn example from the repository root:
+
+```bash
+java -jar etl-cli/target/etl-cli-0.1.0-SNAPSHOT.jar examples/churn-features/pipeline.yaml
+```
+
+It reads `examples/churn-features/data/customers.csv` and
+`service_events.csv`, computes `calls_30d`, `calls_90d`, and `spent_90d`
+with a `point_in_time_join` (c1's March 5 call happens after its March 1
+label time, so it must not count), checks the result against the serving
+manifest in `examples/churn-features/serving/_features.json`, and writes
+Parquet plus a fresh `_features.json` manifest to
+`examples/churn-features/output/churn_features`.
+
+Stages:
+
+| Stage | Kind | What it does |
+|---|---|---|
+| `point_in_time_join` | transform | Joins entity rows to events using only events with `event_time <= as_of` and `event_time > as_of - window`, then aggregates. This is the leakage guard. |
+| `window_aggregate` | transform | Trailing-window aggregation over an event stream (`count`/`sum`/`avg`/`min`/`max`/`last` per entity key), window ending at each row's own event time. |
+| `feature_store` | sink | Writes features as Parquet plus a `_features.json` manifest: feature names in order, types, definition hash, `created_at`. |
+| `feature_consistency` | quality check | Compares a training feature file against a serving manifest: same feature list, same order, same types (optionally the same definition hash). Fails the pipeline on mismatch. |
+
+What it is not: a production feature store (no online low-latency reads,
+no backfill orchestration). It is the offline correctness layer:
+definitions, point-in-time joins, and the train/serve contract.
+
 ## Architecture
 
 ```
@@ -105,6 +140,7 @@ Design principles:
 | `etl-core`        | YAML parsing and validation, DAG topological sort, `SparkSessionManager`, `PipelineRunner` |
 | `etl-connectors`  | Source/sink plugins: CSV, Parquet, JDBC                                   |
 | `etl-quality`     | Quality check plugins: `not_null`, `unique`, `freshness` (`warn`/`fail`)  |
+| `etl-features`    | Feature engineering: `point_in_time_join`, `window_aggregate`, `feature_store`, `feature_consistency` |
 | `etl-cli`         | `main` entry point: `java -jar etl-cli.jar pipeline.yaml`                 |
 
 ## Build

@@ -1,0 +1,6 @@
+customerID,event_time,event_type,amount
+c1,2025-02-15 00:00:00,support_call,10.0
+c1,2025-01-15 00:00:00,support_call,20.0
+c1,2025-03-05 00:00:00,support_call,99.0
+c1,2025-03-10 00:00:00,cancel_call,50.0
+c3,2025-01-15 00:00:00,support_call,5.0
