@@ -1,0 +1,4 @@
+customerID,tenure,label_time,churn
+c1,14,2025-03-01 00:00:00,Yes
+c2,5,2025-03-01 00:00:00,No
+c3,2,2025-02-01 00:00:00,No

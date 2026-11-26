@@ -1,0 +1,27 @@
+# Feature definitions for the churn example pipeline.
+# One file drives BOTH the offline (training) run and the online
+# (serving) run. Nothing about a feature lives in two places.
+entity_key: customerID
+as_of: label_time
+
+features:
+  - name: calls_30d
+    source: support_calls
+    event_time: event_time
+    window: 30d
+    aggregation: count
+    filter: { event_type: support_call }
+
+  - name: calls_90d
+    source: support_calls
+    event_time: event_time
+    window: 90d
+    aggregation: count
+    filter: { event_type: support_call }
+
+  - name: spent_90d
+    source: support_calls
+    event_time: event_time
+    window: 90d
+    aggregation: sum
+    value_column: amount

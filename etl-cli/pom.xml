@@ -28,6 +28,10 @@
       <artifactId>etl-quality</artifactId>
     </dependency>
     <dependency>
+      <groupId>com.github.cy19890513</groupId>
+      <artifactId>etl-features</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.apache.spark</groupId>
       <artifactId>spark-sql_${scala.binary.version}</artifactId>
     </dependency>

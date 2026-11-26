@@ -7,6 +7,7 @@ import com.github.cy19890513.etl.core.PipelineLoader;
 import com.github.cy19890513.etl.core.PipelineRunner;
 import com.github.cy19890513.etl.core.PipelineValidationException;
 import com.github.cy19890513.etl.core.QualityCheckFailedException;
+import com.github.cy19890513.etl.features.FeatureStages;
 import com.github.cy19890513.etl.quality.QualityChecks;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -76,6 +77,7 @@ public final class EtlCli {
         StageRegistry registry = new StageRegistry();
         BuiltinStages.registerAll(registry);
         QualityChecks.registerAll(registry);
+        FeatureStages.registerAll(registry);
 
         Map<String, String> sparkConf = new LinkedHashMap<>(parsed.sparkConf);
         sparkConf.putIfAbsent("spark.master", "local[*]");
